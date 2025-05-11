@@ -2,94 +2,76 @@
 
 #include <array>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include "common.h"
 #include "PageCache.h"
 
-//¿ÉÒÔ¿¼ÂÇÊ¹ÓÃÌõ¼ş±äÁ¿
-
 class CentralCache {
-
-
 public:
-
-    static CentralCache& getInstance()
-    {
+    static CentralCache& getInstance() {
         static CentralCache instance;
         return instance;
     }
 
-    void* fetchRange(size_t index);
-    void returnRange(void* start, size_t size, size_t bytes);
+    void* fetchRange(size_t index);      // ä»ä¸­å¿ƒç¼“å­˜è·å–å†…å­˜å—
+    void returnRange(void* start, size_t size, size_t index);  // å½’è¿˜å†…å­˜å—åˆ°ä¸­å¿ƒç¼“å­˜
 
 private:
-    // Ïà»¥ÊÇ»¹ËùÓĞÔ­×ÓÖ¸ÕëÎªnullptr
-    CentralCache()
+    CentralCache() 
     {
-        for (auto& ptr : centralFreeList_)
-        {
+        for (auto& ptr : centralFreeList_) {
             ptr.store(nullptr);
-        }
-        
-        for (auto& lock : locks_)
-        {
-            lock.clear();
         }
     }
 
-    
-    void* fetchFromPageCache(size_t size);// ´ÓÒ³»º´æ»ñÈ¡ÄÚ´æ
+    void* fetchFromPageCache(size_t size);  // ä» PageCache è·å–æ–°çš„ Span
 
-private:  
-    std::array<std::atomic<void*>, FREE_LIST_SIZE> centralFreeList_;// ÖĞĞÄ»º´æµÄ×ÔÓÉÁ´±í
-    std::array<std::atomic_flag, FREE_LIST_SIZE> locks_;// ÓÃÓÚÍ¬²½µÄ×ÔĞıËø
+private:
+private:
+    std::array<std::atomic<void*>, FREE_LIST_SIZE> centralFreeList_;
+    std::array<std::mutex, FREE_LIST_SIZE> locks_;
+    std::array<std::condition_variable, FREE_LIST_SIZE> cond_vars_;
 };
 
 
 
 
-
-
-
-
-// Ã¿´Î´ÓPageCache»ñÈ¡span´óĞ¡£¨ÒÔÒ³Îªµ¥Î»£©
+// æ¯æ¬¡ä»PageCacheè·å–spanå¤§å°ï¼ˆä»¥é¡µä¸ºå•ä½ï¼‰
 static const size_t SPAN_PAGES = 8;
 
 void* CentralCache::fetchRange(size_t index)
 {
-    // Ë÷Òı¼ì²é£¬µ±Ë÷Òı´óÓÚµÈÓÚFREE_LIST_SIZEÊ±£¬ËµÃ÷ÉêÇëÄÚ´æ¹ı´óÓ¦Ö±½ÓÏòÏµÍ³ÉêÇë
     if (index >= FREE_LIST_SIZE)
         return nullptr;
 
-    // ×ÔĞıËø±£»¤
-    while (locks_[index].test_and_set(std::memory_order_acquire))
-    {
-        std::this_thread::yield(); // Ìí¼ÓÏß³ÌÈÃ²½£¬±ÜÃâÃ¦µÈ´ı£¬±ÜÃâ¹ı¶ÈÏûºÄCPU
-    }
+    std::unique_lock<std::mutex> lock(locks_[index]);
+    size_t size = (index + 1) * ALIGNMENT;
 
-    void* result = nullptr;
-    try
+    while (true)
     {
-        // ³¢ÊÔ´ÓÖĞĞÄ»º´æ»ñÈ¡ÄÚ´æ¿é
-        result = centralFreeList_[index].load(std::memory_order_relaxed);
-
-        if (!result)
+        void* result = centralFreeList_[index].load(std::memory_order_relaxed);
+        if (result)
         {
-            // Èç¹ûÖĞĞÄ»º´æÎª¿Õ£¬´ÓÒ³»º´æ»ñÈ¡ĞÂµÄÄÚ´æ¿é
-            size_t size = (index + 1) * ALIGNMENT;
-            result = fetchFromPageCache(size);
+            // æœ‰å†…å­˜ï¼Œå–å‡ºå¹¶æ›´æ–°é“¾è¡¨å¤´
+            centralFreeList_[index].store(
+                *reinterpret_cast<void**>(result),
+                std::memory_order_release
+            );
+            return result;
+        }
 
-            if (!result)
-            {
-                locks_[index].clear(std::memory_order_release);
-                return nullptr;
-            }
+        // é“¾è¡¨ä¸ºç©ºï¼Œå°è¯•ä»PageCacheè·å–
+        result = fetchFromPageCache(size);
 
-            // ½«»ñÈ¡µÄÄÚ´æ¿éÇĞ·Ö³ÉĞ¡¿é
+        if (result)
+        {
+            // åˆ†å‰²å†…å­˜å—å¹¶æ„å»ºé“¾è¡¨
             char* start = static_cast<char*>(result);
             size_t blockNum = (SPAN_PAGES * PageCache::PAGE_SIZE) / size;
 
             if (blockNum > 1)
-            {  // È·±£ÖÁÉÙÓĞÁ½¸ö¿é²Å¹¹½¨Á´±í
+            {
                 for (size_t i = 1; i < blockNum; ++i)
                 {
                     void* current = start + (i - 1) * size;
@@ -98,74 +80,54 @@ void* CentralCache::fetchRange(size_t index)
                 }
                 *reinterpret_cast<void**>(start + (blockNum - 1) * size) = nullptr;
 
-                // ¸üĞÂÖĞĞÄ»º´æ
                 centralFreeList_[index].store(
                     *reinterpret_cast<void**>(result),
                     std::memory_order_release
                 );
             }
-        }
-        else
-        {
-            // 6. ¸üĞÂÁ´±íÍ·
-            centralFreeList_[index].store(
-                *reinterpret_cast<void**>(result),
-                std::memory_order_release
-            );
-        }
-    }
-    catch (...)
-    {
-        locks_[index].clear(std::memory_order_release);
-        throw;
-    }
+            else
+            {
+                centralFreeList_[index].store(nullptr, std::memory_order_release);
+            }
 
-    // 7. ÊÍ·ÅËø
-    locks_[index].clear(std::memory_order_release);
-    return result;
+            return result;
+        }
+
+        // PageCacheæ— æ³•åˆ†é…ï¼Œç­‰å¾…ç›´åˆ°æœ‰å†…å­˜è¢«å½’è¿˜
+        cond_vars_[index].wait(lock, [this, index] {
+            return centralFreeList_[index].load(std::memory_order_relaxed) != nullptr;
+            });
+    }
 }
-
 void CentralCache::returnRange(void* start, size_t size, size_t index)
 {
-    // µ±Ë÷Òı´óÓÚµÈÓÚFREE_LIST_SIZEÊ±£¬ËµÃ÷ÄÚ´æ¹ı´óÓ¦Ö±½ÓÏòÏµÍ³¹é»¹
     if (!start || index >= FREE_LIST_SIZE)
         return;
 
-    while (locks_[index].test_and_set(std::memory_order_acquire))
-    {
-        std::this_thread::yield();
-    }
+    std::lock_guard<std::mutex> lock(locks_[index]);
 
-    try
-    {
-        // ½«¹é»¹µÄÄÚ´æ¿é²åÈëµ½ÖĞĞÄ»º´æµÄÁ´±íÍ·²¿
-        void* current = centralFreeList_[index].load(std::memory_order_relaxed);
-        *reinterpret_cast<void**>(start) = current;
-        centralFreeList_[index].store(start, std::memory_order_release);
-    }
-    catch (...)
-    {
-        locks_[index].clear(std::memory_order_release);
-        throw;
-    }
+    void* current = centralFreeList_[index].load(std::memory_order_relaxed);
+    *reinterpret_cast<void**>(start) = current;
+    centralFreeList_[index].store(start, std::memory_order_release);
 
-    locks_[index].clear(std::memory_order_release);
+    cond_vars_[index].notify_one();  // é€šçŸ¥ç­‰å¾…çš„çº¿ç¨‹
 }
+
 
 void* CentralCache::fetchFromPageCache(size_t size)
 {
-    // 1. ¼ÆËãÊµ¼ÊĞèÒªµÄÒ³Êı
+    // 1. è®¡ç®—å®é™…éœ€è¦çš„é¡µæ•°
     size_t numPages = (size + PageCache::PAGE_SIZE - 1) / PageCache::PAGE_SIZE;
 
-    // 2. ¸ù¾İ´óĞ¡¾ö¶¨·ÖÅä²ßÂÔ
+    // 2. æ ¹æ®å¤§å°å†³å®šåˆ†é…ç­–ç•¥
     if (size <= SPAN_PAGES * PageCache::PAGE_SIZE)
     {
-        // Ğ¡ÓÚµÈÓÚ32KBµÄÇëÇó£¬Ê¹ÓÃ¹Ì¶¨8Ò³
+        // å°äºç­‰äº32KBçš„è¯·æ±‚ï¼Œä½¿ç”¨å›ºå®š8é¡µ
         return PageCache::getInstance().allocateSpan(SPAN_PAGES);
     }
     else
     {
-        // ´óÓÚ32KBµÄÇëÇó£¬°´Êµ¼ÊĞèÇó·ÖÅä
+        // å¤§äº32KBçš„è¯·æ±‚ï¼ŒæŒ‰å®é™…éœ€æ±‚åˆ†é…
         return PageCache::getInstance().allocateSpan(numPages);
     }
 }
