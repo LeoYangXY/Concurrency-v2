@@ -19,7 +19,7 @@ public:
     void returnRange(void* start, size_t size, size_t index);  // 归还内存块到中心缓存
 
 private:
-    CentralCache() 
+    CentralCache()
     {
         for (auto& ptr : centralFreeList_) {
             ptr.store(nullptr);
@@ -97,7 +97,7 @@ void* CentralCache::fetchRange(size_t index, size_t batchNum)
             // 将从PageCache获取的内存块切分成小块
             char* start = static_cast<char*>(newBlocks);
             size_t totalBlocks = (SPAN_PAGES * PageCache::PAGE_SIZE) / size;//计算从 PageCache 获取的大块内存能被切割成多少个小内存块。
-            
+
             //确定实际要分配给 ThreadCache 的内存块数量。
             //比如我们之前计算的batchNum是10，这里算出来的totalBlocks是16，那么我们只拿10个内存块供分配。
             //剩下来的6个内存块我们保留在CentralCache的FreeList里面，供接下来别的threadCache使用
@@ -112,7 +112,7 @@ void* CentralCache::fetchRange(size_t index, size_t batchNum)
                     void* current = start + (i - 1) * size;//当前小块的地址
                     void* next = start + i * size;// 下一个小块的地址
                     *reinterpret_cast<void**>(current) = next;// 将当前块的第一个字节位置指向下一块
-                
+
                 }
                 *reinterpret_cast<void**>(start + (allocBlocks - 1) * size) = nullptr;//将最后一个块的指针域设为 nullptr，表示链表结束。
             }

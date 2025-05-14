@@ -19,7 +19,7 @@ public:
         //从 freeLists_[1]（16B 的自由链表）中取出一个块返回。
 
     {
-        
+
         bytes = std::max(bytes, ALIGNMENT);// 确保bytes至少为ALIGNMENT
         return (bytes + ALIGNMENT - 1) / ALIGNMENT - 1;
     }

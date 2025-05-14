@@ -50,7 +50,7 @@ private:
 
     void* fetchFromCentralCache(size_t index);// 从中心缓存获取内存
     size_t getBatchNum(size_t size);
-    
+
 
     void returnToCentralCache(void* start, size_t size, size_t bytes);// 归还内存到中心缓存
 
@@ -114,7 +114,7 @@ void* ThreadCache::allocate(size_t size)
         //然后这个内存块的前八位中存储的值是一个地址，这个地址（不妨记为x），代表着下一个内存块的起始地址
         //我们需要取出这一个内存块，然后让 freeList_[index]这个指针指向x这个地址即可
 
-        
+
         uintptr_t cur_add = (uintptr_t)freeList_[index];// 获取当前链表头的地址
         uintptr_t next = 0;// 定义一个整数变量 next，用来存储下一个块的地址
         memcpy(&next, (void*)cur_add, sizeof(void*));//从ptr地址拷贝8字节数据到next
@@ -125,7 +125,7 @@ void* ThreadCache::allocate(size_t size)
     else {// 如果线程本地自由链表为空，则从中心缓存获取一批内存
         return fetchFromCentralCache(index);
     }
-    
+
 }
 
 
@@ -143,7 +143,7 @@ void ThreadCache::deallocate(void* ptr, size_t size)//ptr是我们要回收的�
 
     size_t index = SizeClass::getIndex(size);
 
-    
+
     void* old_head = freeList_[index];
     memcpy(ptr, &old_head, sizeof(void*));// 把当前链表头地址写入ptr的前1个字节
     freeList_[index] = ptr;// 更新链表头为当前ptr
@@ -202,13 +202,13 @@ void ThreadCache::returnToCentralCache(void* start,   // 内存块链表的起�
     size_t size,    // 每个内存块的大小
     size_t bytes)   // 总字节数
 
-//批量归还内存块：当ThreadCache中某个大小的内存块过多时，将多余的部分归还给CentralCache
-//保留适当缓存：仍然保留一部分在ThreadCache中供后续快速分配
-//维护链表结构：正确处理内存块之间的链接关系
+    //批量归还内存块：当ThreadCache中某个大小的内存块过多时，将多余的部分归还给CentralCache
+    //保留适当缓存：仍然保留一部分在ThreadCache中供后续快速分配
+    //维护链表结构：正确处理内存块之间的链接关系
 
 {
     size_t index = SizeClass::getIndex(size);// 根据大小计算对应的索引
-    size_t batchNum = bytes/size;// 计算要归还内存块数量
+    size_t batchNum = bytes / size;// 计算要归还内存块数量
     if (batchNum <= 1) return; // 如果只有一个块，则不归还
 
     // 将内存块串成链表
