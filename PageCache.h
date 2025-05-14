@@ -4,8 +4,8 @@
 #include "common.h"
 #include <cstring>
 #include <cassert>
-
-
+1
+print(1)
 class PageCache {
 
 public:
