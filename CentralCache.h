@@ -178,3 +178,84 @@ void CentralCache::returnRange(void* start, size_t size, size_t index)
 }
 
 
+
+//可考虑无锁操作：
+//// 原代码（有锁）
+//std::array<std::atomic<void*>, FREE_LIST_SIZE> centralFreeList_;
+//std::array<std::mutex, FREE_LIST_SIZE> locks_;
+//
+//// 改造后（无锁）
+//struct LockFreeList {
+//    std::atomic<TaggedPtr> head;  // 带标签的指针（防ABA问题）
+//    std::atomic<bool> need_notify{ false }; // 无锁条件变量替代
+//};
+//std::array<LockFreeList, FREE_LIST_SIZE> centralFreeList_;
+//
+//那么我们先实现一下无锁操作的基础：push和pop
+//
+//void push(int index, void* block) {
+//    LockFreeList& list = centralFreeList_[index];
+//    TaggedPtr old_head = list.head.load(std::memory_order_relaxed);
+//    TaggedPtr new_head;
+//    do {
+//        // 将新块的next指向旧头节点
+//        *reinterpret_cast<void**>(block) = old_head.ptr;
+//        new_head = { block, old_head.tag + 1 }; // 标签递增
+//    } while (!list.head.compare_exchange_weak(
+//        old_head, new_head,
+//        std::memory_order_release,  // 成功时同步
+//        std::memory_order_relaxed));
+//
+//    // 通知等待线程
+//    list.need_notify.store(true, std::memory_order_release);
+//}
+//
+//void* pop(int index) {
+//    LockFreeList& list = centralFreeList_[index];
+//    TaggedPtr old_head, new_head;
+//    void* result = nullptr;
+//    do {
+//        old_head = list.head.load(std::memory_order_acquire);
+//        if (!old_head.ptr) return nullptr; // 链表为空
+//        result = old_head.ptr;
+//        new_head.ptr = *reinterpret_cast<void**>(old_head.ptr); // 下一个节点
+//        new_head.tag = old_head.tag + 1;
+//    } while (!list.head.compare_exchange_weak(
+//        old_head, new_head,
+//        std::memory_order_acquire,
+//        std::memory_order_relaxed));
+//    return result;
+//}
+//
+//void* fetchRange(int index, size_t batchNum) {
+//    LockFreeList& list = centralFreeList_[index];
+//    void* batch_head = nullptr;
+//    size_t count = 0;
+//
+//    // CAS循环获取足够数量的块
+//    do {
+//        TaggedPtr old_head = list.head.load(std::memory_order_acquire);
+//        void* current = old_head.ptr;
+//        batch_head = current;
+//        count = 0;
+//
+//        // 遍历链表，统计可用块数
+//        while (current && count < batchNum) {
+//            current = *reinterpret_cast<void**>(current);
+//            count++;
+//        }
+//
+//        if (count < batchNum) break; // 数量不足，需从PageCache补充
+//
+//        // 尝试原子性截断链表
+//        TaggedPtr new_head = { current, old_head.tag + 1 };
+//        if (list.head.compare_exchange_strong(
+//            old_head, new_head,
+//            std::memory_order_release,
+//            std::memory_order_acquire)) {
+//            return batch_head;
+//        }
+//    } while (true);
+//
+//    return nullptr; // 需从PageCache补充
+//}
