@@ -117,40 +117,19 @@ void* ThreadCache::allocate(size_t size)
 
         uintptr_t cur_add = (uintptr_t)freeList_[index];// 获取当前链表头的地址
         uintptr_t next = 0;// 定义一个整数变量 next，用来存储下一个块的地址
-        memcpy(&next, (void*)cur_add, sizeof(void*));//从ptr地址拷贝8字节数据到next
+        memcpy(&next, (void*)cur_add, sizeof(void*));//从ptr地址拷贝8字节数据到next（因为64位机器下，一个地址需要64个bit也即8个B来表示）
         //freeList_[index] = (void*)next;//把next转化为指针形式，作为新的链表头
         //当然我们也可以用此一步实现：freeList_[index] = *reinterpret_cast<void**>(ptr);
+        //reinterpret_cast<void**>(ptr)就是将 ptr（void*类型）强转为 void** 类型（指针的指针），即ptr指向一个指针（这个指针就是那个地址的前8B，指向了下一个内存块的起始地址）
+        //没转换之前，ptr是一个指针，指向一个内存块，而不是指向一个指针
         return ptr;
     }
-    else {// 如果线程本地自由链表为空，则从中心缓存获取一批内存
+    else {
+        // 如果线程本地自由链表为空，则从中心缓存获取一批内存（那一批内存现在专门归属于当前的threadCache了，但是这里只是取出来一个内存块供使用）
+        //然后注意：对于不同的内存大小，我们会有不一样的batch
         return fetchFromCentralCache(index);
     }
 
-}
-
-
-
-
-
-
-void ThreadCache::deallocate(void* ptr, size_t size)//ptr是我们要回收的内存块的地址
-{
-    if (size > MAX_BYTES)
-    {
-        free(ptr);
-        return;
-    }
-
-    size_t index = SizeClass::getIndex(size);
-
-
-    void* old_head = freeList_[index];
-    memcpy(ptr, &old_head, sizeof(void*));// 把当前链表头地址写入ptr的前1个字节
-    freeList_[index] = ptr;// 更新链表头为当前ptr
-
-    //当然我们也可以使用下面的语法糖：
-    //*reinterpret_cast<void**>(ptr) = freeList_[index];  // 让 ptr 指向原来的链表头
-    //freeList_[index] = ptr;                             // 让链表头指向 ptr
 }
 
 
@@ -174,7 +153,7 @@ void* ThreadCache::fetchFromCentralCache(size_t index)
     return result;
 }
 
-// 计算批量获取内存块的数量
+// 根据对象内存大小计算批量获取的数量
 size_t ThreadCache::getBatchNum(size_t size)
 {
     // 基准：每次批量获取不超过4KB内存
@@ -196,6 +175,28 @@ size_t ThreadCache::getBatchNum(size_t size)
     // 取最小值，但确保至少返回1
     return std::max(sizeof(1), std::min(maxNum, baseNum));
 }
+
+
+void ThreadCache::deallocate(void* ptr, size_t size)//ptr是我们要回收的内存块的地址
+{
+    if (size > MAX_BYTES)
+    {
+        free(ptr);
+        return;
+    }
+
+    size_t index = SizeClass::getIndex(size);
+
+
+    void* old_head = freeList_[index];
+    memcpy(ptr, &old_head, sizeof(void*));// 把当前链表头地址写入ptr的前8个字节
+    freeList_[index] = ptr;// 更新链表头为当前ptr
+
+    //当然我们也可以使用下面的语法糖：
+    //*reinterpret_cast<void**>(ptr) = freeList_[index];  // 让 ptr 指向原来的链表头
+    //freeList_[index] = ptr;                             // 让链表头指向 ptr
+};
+
 
 
 void ThreadCache::returnToCentralCache(void* start,   // 内存块链表的起始地址

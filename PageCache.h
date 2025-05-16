@@ -29,23 +29,25 @@ private:
         Span* next;     // 链表指针
     };
 
+    //针对allocate，用于记录的数据结构及其对应的锁：
     // spanMap_ 中存在的 Span 表示“正在使用”；spanMap_ 中不存在的 Span 表示“空闲”
     // key为void*，代表内存页的起始地址（即 Span::pageAddr），例如 0x1000、0x2000。
     // value为Span*，即指向 Span 对象的指针，这个Span对象会保存该内存块的元信息（起始地址、页数、链表指针等）。
-    std::map<void*, Span*> spanMap_;
-    std::mutex map_mutex_; // 用于spanMap_这个全局统计量的全局锁，当然其实这里也可以优化：spanMap_可以考虑使用tbb的并发hashmap，或者是自己使用无锁操作进行处理
+    std::map<void*, Span*> spanMap_;//当然其实这里也可以优化：spanMap_可以考虑使用tbb的并发hashmap，或者是自己使用无锁操作进行处理
+    std::mutex map_mutex_; // 用于spanMap_这个全局统计量的全局锁，因为我们在实际操作完毕之后，要对spanMap_进行写操作
 
-    // 为了deallocate部分，合并内存块而新增的数据结构
+
+    //针对deallocate的合并内存块部分，而新增的用于记录的数据结构及其锁：
     std::map<void*, Span*> free_span_map_; // key: Span 的起始地址，value: Span 指针
     std::mutex free_span_mutex_; // 保护 free_span_map_ 的锁
 
 
-    // freeSpans_ 按页数管理空闲span，不同页数对应不同Span链表
-    std::map<size_t, Span*> freeSpans_;
 
-    // 下面是对于freeSpans_的细粒度锁
-    static constexpr size_t kMaxLockedPages = 128; // 假设最大锁数量
-    std::array<std::mutex, kMaxLockedPages> page_locks_;
+    //下面是PageCache的自由链表+针对自由链表的锁部分：
+    std::map<size_t, Span*> freeSpans_;// freeSpans_ 按页数管理空闲span，不同页数对应不同Span链表
+
+    static constexpr size_t kMaxLockedPages = 128; // 假设最大锁数量，实现分片锁机制
+    std::array<std::mutex, kMaxLockedPages> page_locks_;// 针对freeSpans_的细粒度锁
 
 
 };
@@ -67,7 +69,8 @@ void* PageCache::allocateSpan(size_t numPages) {
         else {
             freeSpans_.erase(it);
         }
-        //如果我们获得的span大于需要的numPages则进行分割
+
+        //step2:如果我们获得的span大于需要的numPages则进行分割
         //就是CentralCache申请了numPages数量的页面，我们取出的是一整个span，
         //然后我们把这个span的前面numsPages页给到CentralCache，剩下来的我们串成一个新的span，然后挂回PageCache里面去
         if (span->numPages > numPages) {
@@ -83,7 +86,7 @@ void* PageCache::allocateSpan(size_t numPages) {
             newSpan->next = freeSpans_[target_pages];
             freeSpans_[target_pages] = newSpan;
 
-            // 空闲部分插入到 free_span_map_
+            // 注意：空闲部分记录进free_span_map_
             {
                 std::lock_guard<std::mutex> free_span_lock(free_span_mutex_);
                 free_span_map_[newSpan->pageAddr] = newSpan;
@@ -92,7 +95,7 @@ void* PageCache::allocateSpan(size_t numPages) {
             span->numPages = numPages; // 更新当前span的大小
         }
 
-        // 在被使用的部分插入spanMap_
+        // 注意：在被使用的部分记录进spanMap_
         // 就是一个span，return给CentralCache之后，逻辑上它是归属于CentralCache的
         // 但是这一个span，物理上就是内存中的一段，每一个指向它的指针都可以管理它
         {
@@ -113,7 +116,7 @@ void* PageCache::allocateSpan(size_t numPages) {
     span->numPages = numPages;
     span->next = nullptr;
 
-    // 记录span信息用于回收
+    //在被使用的部分记录进spanMap_
     {
         std::lock_guard map_lock(map_mutex_);
         spanMap_[memory_address] = span;
@@ -138,7 +141,7 @@ void* PageCache::systemAlloc(size_t numPages) {
 
 //deallocate的难点在于合并span
 //合并操作的核心条件
-//只有当相邻 Span 是空闲的（不在 spanMap_ 中）时，才能合并。
+//只有当相邻 Span 是空闲的（不在 spanMap_ 中，在free_span_map_）时，才能合并。
 //如果相邻 Span 仍在 spanMap_ 中 → 正在被使用 → 不能合并。
 //如果相邻 Span 不在 spanMap_ 中 → 已释放 → 可以合并。
 //那什么是当前span的前一个span呢：物理地址空间上相邻的 Span
@@ -178,7 +181,7 @@ void PageCache::deallocateSpan(void* ptr, size_t numPages) {
                 size_t prev_lock_idx = prev_span->numPages % kMaxLockedPages;
                 if (lock_idx != prev_lock_idx) {
                     span_lock.unlock();
-                    std::lock(page_locks_[prev_lock_idx], page_locks_[lock_idx]);
+                    std::lock(page_locks_[prev_lock_idx], page_locks_[lock_idx]);//使用std::lock一次性锁住2个mutex，避免死锁
                     span_lock.lock(); // 重新锁定当前分片
                 }
 

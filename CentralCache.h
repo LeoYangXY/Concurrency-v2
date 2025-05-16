@@ -14,8 +14,7 @@ public:
         return instance;
     }
 
-    void* fetchRange(size_t index, size_t batchNum);
-    // 从中心缓存获取内存块
+    void* fetchRange(size_t index, size_t batchNum);// 从中心缓存获取内存块
     void returnRange(void* start, size_t size, size_t index);  // 归还内存块到中心缓存
 
 private:
@@ -29,7 +28,6 @@ private:
     void* fetchFromPageCache(size_t size);  // 从 PageCache 获取新的 Span
 
 private:
-private:
     std::array<std::atomic<void*>, FREE_LIST_SIZE> centralFreeList_;
     std::array<std::mutex, FREE_LIST_SIZE> locks_;//每个链表一个互斥锁
     std::array<std::condition_variable, FREE_LIST_SIZE> cond_vars_;
@@ -38,7 +36,7 @@ private:
 
 
 
-// 每次从PageCache取一批内存块，这一批内存块是8页，那至于每一页多大呢，就是由CentralCache自己决定的
+// 每次从PageCache取一批内存块，这一批内存块是8页，那至于每一页多大呢，这是由CentralCache自己决定的
 static const size_t SPAN_PAGES = 8;
 
 

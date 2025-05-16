@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 只需要编译 Test.cpp，其他头文件会自动包含
 # 构建 UnitTest 可执行文件
-add_executable(UnitTest Unit_Test.cpp)
+# add_executable(UnitTest Unit_Test.cpp)
 
 # 构建 PerformanceTest 可执行文件
 add_executable(PerformanceTest Performance_Test.cpp)

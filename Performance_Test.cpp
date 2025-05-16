@@ -307,13 +307,21 @@ int main()
 
     // 运行测试
     //PerformanceTest::testSmallAllocation();
-    PerformanceTest::testMultiThreaded(1);
-    //PerformanceTest::testMixedSizes();
-    PerformanceTest::testMultiThreaded(2);
-    PerformanceTest::testMultiThreaded(4);
-    PerformanceTest::testMultiThreaded(8);
-    PerformanceTest::testMultiThreaded(16);
+    //PerformanceTest::testMultiThreaded(1);
+    ////PerformanceTest::testMixedSizes();
+    //PerformanceTest::testMultiThreaded(2);
+    //PerformanceTest::testMultiThreaded(4);
+    //PerformanceTest::testMultiThreaded(8);
+    //PerformanceTest::testMultiThreaded(16);
+    //PerformanceTest::testMultiThreaded(32);
+    //PerformanceTest::testMultiThreaded(64);
+
+        // 预热系统
+    PerformanceTest::warmup();
+
+    // 运行测试
+    PerformanceTest::testSmallAllocation();
     PerformanceTest::testMultiThreaded(32);
-    PerformanceTest::testMultiThreaded(64);
+    PerformanceTest::testMixedSizes();
     return 0;
 }
