@@ -60,9 +60,9 @@ void* PageCache::allocateSpan(size_t numPages) {
     auto it = freeSpans_.lower_bound(numPages);
     if (it != freeSpans_.end()) {
         Span* span = it->second;//其实就是访问lt这个（size_t, Span* ）对象的第二个属性，也即Span* 。
-                                //当然我们也可以使用C++17引入的结构化绑定：auto& [pageCount, span] = *it;  
+        //当然我们也可以使用C++17引入的结构化绑定：auto& [pageCount, span] = *it;  
 
-        // 将取出的span从原有的空闲链表freeSpans_[it->first]中移除
+// 将取出的span从原有的空闲链表freeSpans_[it->first]中移除
         if (span->next) {
             freeSpans_[it->first] = span->next;
         }
