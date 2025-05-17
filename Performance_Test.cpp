@@ -298,6 +298,7 @@ public:
     }
 };
 
+
 int main()
 {
     std::cout << "Starting performance tests..." << std::endl;
@@ -305,23 +306,23 @@ int main()
     // 预热系统
     PerformanceTest::warmup();
 
-    // 运行测试
-    //PerformanceTest::testSmallAllocation();
-    //PerformanceTest::testMultiThreaded(1);
-    ////PerformanceTest::testMixedSizes();
-    //PerformanceTest::testMultiThreaded(2);
-    //PerformanceTest::testMultiThreaded(4);
-    //PerformanceTest::testMultiThreaded(8);
-    //PerformanceTest::testMultiThreaded(16);
-    //PerformanceTest::testMultiThreaded(32);
-    //PerformanceTest::testMultiThreaded(64);
-
-        // 预热系统
-    PerformanceTest::warmup();
-
-    // 运行测试
+     //运行测试
     PerformanceTest::testSmallAllocation();
-    PerformanceTest::testMultiThreaded(32);
-    PerformanceTest::testMixedSizes();
+    PerformanceTest::testMultiThreaded(1);
+    //PerformanceTest::testMixedSizes();
+    PerformanceTest::testMultiThreaded(20);
+    PerformanceTest::testMultiThreaded(40);
+    PerformanceTest::testMultiThreaded(80);
+    PerformanceTest::testMultiThreaded(160);
+    PerformanceTest::testMultiThreaded(320);
+    PerformanceTest::testMultiThreaded(640);
+
+    //    // 预热系统
+    //PerformanceTest::warmup();
+
+    //// 运行测试
+    //PerformanceTest::testSmallAllocation();
+    //PerformanceTest::testMultiThreaded(32);
+    //PerformanceTest::testMixedSizes();
     return 0;
 }

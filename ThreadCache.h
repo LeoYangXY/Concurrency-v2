@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include <array>
 #include "common.h"
-#include "CentralCache.h"
+#include "CentralCache_LockFree.h"
 
 //注意！！！！！！！！！！！！！！！！！！！！！！！！！
 //下面的*（void**）这样的操作，本质上是因为我们这里的链表的节点，我们是直接使用裸空间，因此对于链表的处理会显得很繁杂
